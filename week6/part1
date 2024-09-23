@@ -1,0 +1,100 @@
+import os
+
+def convert_to_yolo_format(annotations, image_width, image_height):
+    """
+    Convert annotations from absolute bounding box format to YOLO format.
+    
+    Parameters:
+    - annotations: List of annotations, each as [class_id, x_min, y_min, x_max, y_max].
+    - image_width: Width of the image.
+    - image_height: Height of the image.
+    
+    Returns:
+    - List of converted YOLO annotations as [class_id, x_center, y_center, width, height].
+    """
+    yolo_annotations = []
+    
+    for annotation in annotations:
+        class_id, x_min, y_min, x_max, y_max = annotation
+        
+        # Convert bounding box coordinates to YOLO format
+        x_center = ((x_min + x_max) / 2) / image_width
+        y_center = ((y_min + y_max) / 2) / image_height
+        width = (x_max - x_min) / image_width
+        height = (y_max - y_min) / image_height
+        
+        # Append in YOLO format: <class_id> <x_center> <y_center> <width> <height>
+        yolo_annotations.append(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
+    
+    return yolo_annotations
+
+def save_yolo_annotations(yolo_annotations, output_file):
+    """
+    Save YOLO annotations to a file.
+    
+    Parameters:
+    - yolo_annotations: List of YOLO annotations in the format [class_id, x_center, y_center, width, height].
+    - output_file: The path to the output file where annotations will be saved.
+    """
+    with open(output_file, 'w') as f:
+        for annotation in yolo_annotations:
+            f.write(annotation + '\n')
+
+def process_annotation_file(annotation_file, image_width, image_height, output_file):
+    """
+    Read an annotation file, convert it to YOLO format, and save the result.
+    
+    Parameters:
+    - annotation_file: Path to the input annotation file (assumed to be in x_min, y_min, x_max, y_max format).
+    - image_width: Width of the image corresponding to the annotations.
+    - image_height: Height of the image corresponding to the annotations.
+    - output_file: The path to the output file for YOLO annotations.
+    """
+    # Class name to class ID mapping
+    class_mapping = {
+        "Graffiti": 0  # Example: Map "Graffiti" to class ID 0
+        # Add more classes here if needed
+    }
+
+    annotations = []
+    
+    with open(annotation_file, 'r') as file:
+        next(file)  # Skip the header row if present
+        
+        for line in file.readlines():
+            parts = line.strip().split(',')
+            
+            # Extract the relevant columns
+            try:
+                filename = parts[0]  # Assuming the first column is the filename
+                image_width = int(parts[1])
+                image_height = int(parts[2])
+                class_name = parts[3]  # This is "Graffiti" in your case
+                
+                # Map class name to class ID
+                if class_name in class_mapping:
+                    class_id = class_mapping[class_name]
+                else:
+                    raise ValueError(f"Unknown class name: {class_name}")
+                
+                # Extract bounding box coordinates
+                x_min, y_min, x_max, y_max = map(float, parts[4:])
+                
+                # Append the annotation
+                annotations.append([class_id, x_min, y_min, x_max, y_max])
+            except ValueError as e:
+                print(f"Skipping line due to error: {line.strip()} - {e}")
+    
+    # Convert to YOLO format
+    yolo_annotations = convert_to_yolo_format(annotations, image_width, image_height)
+    
+    # Save the YOLO annotations
+    save_yolo_annotations(yolo_annotations, output_file)
+
+# Example usage:
+image_width = 640  # Adjust as needed
+image_height = 480  # Adjust as needed
+annotation_file = "/Users/6581/Downloads/week6/3238357/Bounding_boxes/train_labels.csv"  # Path to the input annotation file
+output_file = "/Users/6581/Downloads/week6/annotations.txt"  # Path where YOLO annotations will be saved
+
+process_annotation_file(annotation_file, image_width, image_height, output_file)

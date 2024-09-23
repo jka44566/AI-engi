@@ -1,0 +1,40 @@
+import torch
+import cv2
+
+# Load YOLO model
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='/Users/6581/Downloads/week6/yolov5/runs/train/exp2/weights/best.pt')  # Adjust to your model path
+
+# Open webcam
+cap = cv2.VideoCapture(0)  # 0 is usually the default webcam, try 1, 2, etc. if this doesn't work
+
+if not cap.isOpened():
+    print("Error: Could not open webcam.")
+else:
+    print("Webcam opened successfully.")
+
+while True:
+    # Capture frame-by-frame
+    ret, frame = cap.read()
+
+    if not ret:
+        print("Error: Could not read frame.")
+        break
+
+    # Perform object detection on the frame
+    results = model(frame)
+
+    # Render results on the frame
+    result_frame = results.render()[0]
+
+    # Display the frame
+    cv2.imshow('Webcam YOLO Detection', result_frame)
+
+    # Press 'q' to exit the loop and stop the webcam
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        print("Quitting...")
+        break
+
+# Release the webcam and close all windows
+cap.release()
+cv2.destroyAllWindows()
+

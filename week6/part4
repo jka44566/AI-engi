@@ -1,0 +1,112 @@
+import os
+import random
+import pandas as pd
+from PIL import Image
+import torch
+
+# Paths
+train_image_dir = '/Users/6581/Downloads/week6/3238357/images/train'
+test_image_dir = '/Users/6581/Downloads/week6/3238357/images/test'
+ground_truth_annotations_train = '/Users/6581/Downloads/week6/3238357/Bounding_boxes/train_labels.csv'
+ground_truth_annotations_test = '/Users/6581/Downloads/week6/3238357/Bounding_boxes/test_labels.csv'
+model_output_dir = '/Users/6581/Downloads/week6/yolov5/runs/train/exp2'  # Directory to save models
+iou_csv_path = '/Users/6581/downloads/week6/iou_resultsP4.csv'
+
+# Start with the pretrained model from previous step
+model_path = '/Users/6581/Downloads/week6/yolov5/runs/train/exp2/weights/best.pt'
+
+def select_images(image_dir, n):
+    """ Randomly select n images from image_dir """
+    all_images = [f for f in os.listdir(image_dir) if f.endswith('.jpg')]
+    return random.sample(all_images, n)
+
+def train_yolo_model(train_images, model_path):
+    """Train YOLOv5 with 400 images, use the model from previous iteration as pretrained"""
+    # Assuming you have your train.py script set up for training
+    os.system(f"python yolov5/train.py --img 320 --batch 16 --epochs 1 --data data.yaml "
+              f"--weights {model_path} --train-images {train_images} --save-dir {model_output_dir}")
+    
+    # Return the path to the updated model (assuming best.pt is the new model)
+    return os.path.join(model_output_dir, 'weights', 'best.pt')
+
+def calculate_iou(pred_box, gt_box):
+    # Format: pred_box = [xmin, ymin, xmax, ymax]
+    # Format: gt_box = [xmin, ymin, xmax, ymax]
+    if gt_box is not None:  # Ensure gt_box is not None
+        iou = box_iou(torch.tensor([pred_box]), torch.tensor([gt_box]))
+        return iou.item()
+    return 0  # Return 0 if gt_box is not valid
+
+test_image_dir = '/Users/6581/Downloads/week6/3238357/images/test'
+test_images = [f for f in os.listdir(test_image_dir) if f.endswith('.jpg')]  # Adjust if necessary
+new_model_path = '/Users/6581/Downloads/week6/yolov5/runs/train/exp2/weights/best.pt'
+ground_truth_annotations = '/Users/6581/Downloads/week6/3238357/Bounding_boxes/test_labels.csv'
+
+def evaluate_iou(test_images, model_path, ground_truth_df, test_image_dir):
+    """ Evaluate IoU on test images and return percentage of images with IoU > 90% """
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path, force_reload=False)
+    model.to(device)
+
+    iou_list = []  # Initialize IoU list
+
+    batch_size = 16  # Define your batch size
+    for i in range(0, len(test_images), batch_size):
+        batch_images = test_images[i:i + batch_size]
+        imgs = [Image.open(os.path.join(test_image_dir, img_file)) for img_file in batch_images]
+        results = model(imgs)  # Run inference on the batch
+
+        for idx, image_file in enumerate(batch_images):
+            pred_boxes = results.xyxy[idx].cpu().numpy()  # Get predictions for the current image
+
+            # Get ground truth annotations for the current image
+            gt_annotations = ground_truth_df[ground_truth_df['filename'] == image_file]
+
+            if len(pred_boxes) > 0:
+                pred_box = pred_boxes[0][:4]  # [xmin, ymin, xmax, ymax]
+                if not gt_annotations.empty:
+                    gt_box = gt_annotations[['xmin', 'ymin', 'xmax', 'ymax']].values[0]
+                    iou_value = calculate_iou(pred_box, gt_box)
+                else:
+                    iou_value = 0
+            else:
+                iou_value = 0
+
+            iou_list.append(iou_value)
+
+    # Compute percentage of images with IoU > 90%
+    high_iou_images = sum(1 for iou in iou_list if iou > 0.90)
+    iou_percentage = (high_iou_images / len(iou_list)) * 100 if iou_list else 0
+    
+    return iou_percentage
+
+
+# Load ground truth annotations
+ground_truth_df = pd.read_csv(ground_truth_annotations)
+
+# Call the function with the appropriate parameters
+iou_percentage = evaluate_iou(test_images, new_model_path, ground_truth_df, test_image_dir)
+print(f"IoU Percentage: {iou_percentage}%")
+
+
+
+while True:
+    # Step 1: Randomly select training and testing images
+    train_images = select_images(train_image_dir, 400)
+    test_images = select_images(test_image_dir, 40)
+
+    # Step 2: Train the model
+    new_model_path = train_yolo_model(train_images, model_path)
+
+    # Step 3: Test the model and compute IoU
+    iou_percentage = evaluate_iou(test_images, new_model_path, ground_truth_df, test_image_dir)  # Include all arguments
+
+    # Step 4: Check stopping condition
+    if iou_percentage >= 80:
+        print(f"80% of test images have IoU > 90%, stopping iteration.")
+        break
+
+    # Update model for next iteration
+    model_path = new_model_path
+
+    # (Optional) Log iteration results

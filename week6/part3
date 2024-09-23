@@ -1,0 +1,93 @@
+import os
+import random
+import pandas as pd
+import torch
+from PIL import Image
+
+# Paths to your test dataset and model
+test_image_dir = '/Users/6581/Downloads/week6/3238357/images/test'
+output_csv = '/Users/6581/downloads/week6/iou_results.csv'
+model_path = '/Users/6581/Downloads/week6/yolov5/runs/train/exp2/weights/best.pt'  # Path to trained model
+ground_truth_annotations = '/Users/6581/Downloads/week6/3238357/Bounding_boxes/test_labels.csv'  # Ground truth labels
+
+# Randomly select 40 test images
+test_images = [f for f in os.listdir(test_image_dir) if f.endswith('.jpg')]
+selected_images = random.sample(test_images, 40)
+
+# Load ground truth annotations
+ground_truth_df = pd.read_csv(ground_truth_annotations)
+
+# Load YOLOv5 model from Torch Hub
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = torch.hub.load('ultralytics/yolov5', 'custom', path=model_path, force_reload=True)
+model.to(device)
+
+# Function to calculate IoU between predicted and ground truth boxes
+def calculate_iou(pred_box, gt_box):
+    # Unpack the boxes: [xmin, ymin, xmax, ymax]
+    pred_xmin, pred_ymin, pred_xmax, pred_ymax = pred_box
+    gt_xmin, gt_ymin, gt_xmax, gt_ymax = gt_box
+
+    # Calculate the intersection coordinates
+    inter_xmin = max(pred_xmin, gt_xmin)
+    inter_ymin = max(pred_ymin, gt_ymin)
+    inter_xmax = min(pred_xmax, gt_xmax)
+    inter_ymax = min(pred_ymax, gt_ymax)
+
+    # Calculate the intersection area
+    inter_area = max(0, inter_xmax - inter_xmin) * max(0, inter_ymax - inter_ymin)
+
+    # Calculate the area of both the prediction and ground truth boxes
+    pred_area = (pred_xmax - pred_xmin) * (pred_ymax - pred_ymin)
+    gt_area = (gt_xmax - gt_xmin) * (gt_ymax - gt_ymin)
+
+    # Calculate the union area
+    union_area = pred_area + gt_area - inter_area
+
+    # Compute the IoU
+    iou = inter_area / union_area if union_area > 0 else 0
+
+    return iou
+
+# Initialize results list
+results = []
+
+# Process each selected image
+for image_file in selected_images:
+    # Load image
+    image_path = os.path.join(test_image_dir, image_file)
+    img = Image.open(image_path)
+
+    # Run inference on the image
+    results_img = model(img)
+
+    # Extract predicted bounding boxes and confidence scores
+    pred_boxes = results_img.xyxy[0].cpu().numpy()  # [x_min, y_min, x_max, y_max, confidence, class]
+    
+    # Extract ground truth annotations
+    gt_annotations = ground_truth_df[ground_truth_df['filename'] == image_file]
+    
+    if len(pred_boxes) == 0:
+        # No graffiti detected, set IoU to 0
+        iou_value = 0
+        confidence = 0
+    else:
+        # Take the first prediction (you could also loop over all predictions if multiple are found)
+        pred_box = pred_boxes[0][:4]  # [xmin, ymin, xmax, ymax]
+        confidence = pred_boxes[0][4]  # Confidence score
+
+        # Get the ground truth bounding box for the graffiti class
+        if not gt_annotations.empty:
+            gt_box = gt_annotations[['xmin', 'ymin', 'xmax', 'ymax']].values[0]  # [xmin, ymin, xmax, ymax]
+            iou_value = calculate_iou(pred_box, gt_box)
+        else:
+            iou_value = 0  # No ground truth, IoU = 0
+    
+    # Append result for the current image
+    results.append([image_file, confidence, iou_value])
+
+# Save results to CSV
+df_results = pd.DataFrame(results, columns=['image_name', 'confidence value', 'IoU value'])
+df_results.to_csv(output_csv, index=False)
+
+print(f"Results saved to {output_csv}")
